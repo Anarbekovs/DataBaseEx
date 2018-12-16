@@ -16,12 +16,15 @@ import android.widget.Toast;
 
 import com.orm.SugarContext;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import io.reactivex.Scheduler;
 import io.reactivex.Single;
+import io.reactivex.SingleEmitter;
 import io.reactivex.SingleOnSubscribe;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.observers.DisposableSingleObserver;
@@ -92,6 +95,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         btnSaveAllRoom.setOnClickListener(this);
         btnSelectAllRoom.setOnClickListener(this);
         btnDeleteAllRoom.setOnClickListener(this);
+
     }
 
     @Override
@@ -110,13 +114,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 execute(this::deleteAllShugar);
                 break;
             case R.id.btnSaveAllRealm:
-                execute(this::saveRealm);
+                executeWithRealm(this::saveRealm);
                 break;
             case R.id.btnSelectAllRealm:
-                execute(this::getAllRealm);
+                executeWithRealm(this::getAllRealm);
                 break;
             case R.id.btnDeleteAllRealm:
-                execute(this::deleteAllRealm);
+                executeWithRealm(this::deleteAllRealm);
                 break;
             case R.id.btnSaveAllRoom:
                 execute(this::saveRoom);
@@ -144,7 +148,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             public void onSuccess(@NonNull Bundle bundle) {
                 progressBar.setVisibility(View.GONE);
                 mInfoTextView.append("количество = " + bundle.getInt(EXT_COUNT) +
-                                     "\n милисекунд = " + bundle.getLong(EXT_TIME));
+                        "\n милисекунд = " + bundle.getLong(EXT_TIME));
             }
 
             @Override
@@ -170,8 +174,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     .build();
             Call<List<Model>> call = retrofit.create(Endpoints.class).loadUsers();
             downloadOneUrl(call);
-        }
-        else {
+        } else {
             Toast.makeText(this, "Подключите интернет", Toast.LENGTH_SHORT).show();
         }
     }
@@ -185,19 +188,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     if (response.body() != null) {
                         Model curModel = null;
                         mInfoTextView.append("\n Size = " + response.body().size() +
-                                             "\n-----------------");
+                                "\n-----------------");
                         for (int i = 0; i < response.body().size(); i++) {
                             curModel = response.body().get(i);
                             modelList.add(curModel);
                             mInfoTextView.append(
                                     "\nLogin = " + curModel.getLogin() +
-                                    "\nId = " + curModel.getUserId() +
-                                    "\nURI = " + curModel.getAvatar() +
-                                    "\n-----------------");
+                                            "\nId = " + curModel.getUserId() +
+                                            "\nURI = " + curModel.getAvatar() +
+                                            "\n-----------------");
                         }
                     }
-                }
-                else {
+                } else {
                     System.out.println("onResponse error: " + response.code());
                     mInfoTextView.setText("onResponse error: " + response.code());
                 }
@@ -218,8 +220,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         Single<Bundle> singleDeleteAll = Single.create((SingleOnSubscribe<Bundle>) emitter -> {
             try {
                 emitter.onSuccess(call.call());
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 emitter.onError(e);
             }
         }).subscribeOn(Schedulers.io())
@@ -227,9 +228,24 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         singleDeleteAll.subscribeWith(createObserver());
     }
 
+    @SuppressLint("CheckResult")
+    private void executeWithRealm(Callable<Bundle> call) {
+        Single<Bundle> singleDeleteAll = Single.create((SingleOnSubscribe<Bundle>) emitter -> {
+            try {
+                emitter.onSuccess(call.call());
+            } catch (Exception e) {
+                emitter.onError(e);
+            }
+        });
+        singleDeleteAll.subscribeWith(createObserver());
+    }
+
+
+
     private Bundle saveShugar() {
         Date first = new Date();
         for (Model curItem : modelList) {
+
             new SugarModel(
                     curItem.getLogin(),
                     curItem.getUserId(),
@@ -267,15 +283,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private Bundle saveRealm() {
         realm = Realm.getDefaultInstance();
         Date first = new Date();
-        realm.executeTransaction(realm1 -> {
+        realm.executeTransactionAsync(realm1 -> {
             for (Model curItem : modelList) {
                 try {
                     RealmModel realmModel = realm1.createObject(RealmModel.class);
                     realmModel.setUserID(curItem.getUserId());
                     realmModel.setLogin(curItem.getLogin());
                     realmModel.setAvatarUrl(curItem.getAvatar());
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                     realm1.cancelTransaction();
                     realm1.close();
                     throw e;
@@ -308,7 +323,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         final RealmResults<RealmModel> tempList = realm.where(RealmModel.class).findAll();
         int size = tempList.size();
         Date first = new Date();
-        realm.executeTransaction(realm -> tempList.deleteAllFromRealm());
+        realm.executeTransactionAsync(realm ->
+                realm.where(RealmModel.class).findAll().deleteAllFromRealm()
+        );
+
         Date second = new Date();
         Bundle bundle = new Bundle();
         bundle.putInt(EXT_COUNT, size);
